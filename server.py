@@ -132,6 +132,115 @@ def get_services():
     return jsonify(services)
 
 
+def calculate_cpu_percent(stats):
+    cpu_delta = (
+        stats["cpu_stats"]["cpu_usage"]["total_usage"]
+        - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+    )
+    system_delta = (
+        stats["cpu_stats"]["system_cpu_usage"]
+        - stats["precpu_stats"]["system_cpu_usage"]
+    )
+    cpu_count = len(stats["cpu_stats"]["cpu_usage"].get("percpu_usage", []))
+
+    if system_delta > 0 and cpu_delta > 0:
+        return (cpu_delta / system_delta) * cpu_count * 100.0
+    return 0.0
+
+
+def calculate_memory(stats):
+    usage = stats["memory_stats"].get("usage", 0)
+    limit = stats["memory_stats"].get("limit", 0)
+    percent = (usage / limit * 100) if limit else 0
+    return usage, limit, percent
+
+@app.route("/api/services/<name>/stats")
+@cross_origin()
+def service_stats(name):
+    container = get_container(name)
+    if not container:
+        return jsonify({"error": "Container not found"}), 404
+
+    try:
+        stats = container.stats(stream=False)
+        attrs = container.attrs
+
+        # ---- CPU ----
+        cpu_percent = calculate_cpu_percent(stats)
+
+        # ---- Memory ----
+        mem_usage, mem_limit, mem_percent = calculate_memory(stats)
+
+        # ---- Network IO ----
+        net_rx = 0
+        net_tx = 0
+        for iface in stats.get("networks", {}).values():
+            net_rx += iface.get("rx_bytes", 0)
+            net_tx += iface.get("tx_bytes", 0)
+
+        # ---- Block IO ----
+        blk_read = 0
+        blk_write = 0
+        for blk in stats.get("blkio_stats", {}).get("io_service_bytes_recursive", []):
+            if blk["op"] == "Read":
+                blk_read += blk["value"]
+            elif blk["op"] == "Write":
+                blk_write += blk["value"]
+
+        # ---- Ports ----
+        ports = attrs.get("NetworkSettings", {}).get("Ports", {})
+        exposed_ports = []
+        published_ports = []
+
+        for container_port, bindings in ports.items():
+            exposed_ports.append(container_port)
+            if bindings:
+                for b in bindings:
+                    published_ports.append({
+                        "container_port": container_port,
+                        "host_ip": b.get("HostIp"),
+                        "host_port": b.get("HostPort")
+                    })
+
+        return jsonify({
+            # ---- Identity ----
+            "name": container.name,
+            "id": container.id[:12],
+            "image": attrs.get("Config", {}).get("Image"),
+            "status": container.status,
+
+            # ---- Runtime ----
+            "cpu": {
+                "percent": round(cpu_percent, 2)
+            },
+            "memory": {
+                "usage_bytes": mem_usage,
+                "limit_bytes": mem_limit,
+                "percent": round(mem_percent, 2)
+            },
+            "pids": stats.get("pids_stats", {}).get("current", 0),
+
+            # ---- IO ----
+            "network_io": {
+                "rx_bytes": net_rx,
+                "tx_bytes": net_tx
+            },
+            "block_io": {
+                "read_bytes": blk_read,
+                "write_bytes": blk_write
+            },
+
+            # ---- Networking ----
+            "network_mode": attrs.get("HostConfig", {}).get("NetworkMode"),
+            "ports": {
+                "exposed": exposed_ports,
+                "published": published_ports
+            }
+        })
+
+    except APIError as e:
+        return jsonify({"error": str(e)}), 500
+
 # Serve React index.html
 @app.route("/")
 @cross_origin()

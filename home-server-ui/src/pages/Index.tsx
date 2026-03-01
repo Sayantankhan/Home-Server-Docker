@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { AddServiceModal } from "@/components/AddServiceModal";
 import { Play, Square, ExternalLink, Server, RefreshCw, Search } from "lucide-react";
+import { AddServiceModal } from "@/components/AddServiceModal";
+import { ContainerDetailsModal } from "@/components/ContainerDetailsModal";
 import { toast } from "sonner";
 
 interface Service {
@@ -42,11 +43,12 @@ const Index = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
+  const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
 
   const { data: services, isLoading, error, refetch } = useQuery({
     queryKey: ["services"],
     queryFn: fetchServices,
-    refetchInterval: 5000,
+    refetchInterval: 20000,
   });
 
   const filteredServices = services?.filter((service) =>
@@ -182,7 +184,8 @@ const Index = () => {
             filteredServices?.map((service) => (
               <Card
                 key={service.name}
-                className="overflow-hidden hover:shadow-lg transition-shadow"
+                className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => setSelectedContainer(service.name)}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
@@ -223,7 +226,10 @@ const Index = () => {
                       size="sm"
                       variant="destructive"
                       className="w-full gap-2"
-                      onClick={() => stopMutation.mutate(service.name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        stopMutation.mutate(service.name);
+                      }}
                       disabled={pendingActions.has(service.name)}
                     >
                       <Square className="h-4 w-4" />
@@ -233,7 +239,10 @@ const Index = () => {
                     <Button
                       size="sm"
                       className="w-full gap-2"
-                      onClick={() => startMutation.mutate(service.name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startMutation.mutate(service.name);
+                      }}
                       disabled={pendingActions.has(service.name)}
                     >
                       <Play className="h-4 w-4" />
@@ -266,6 +275,11 @@ const Index = () => {
             </span>
           </div>
         )}
+
+        <ContainerDetailsModal
+          containerName={selectedContainer}
+          onClose={() => setSelectedContainer(null)}
+        />
       </div>
     </div>
   );
