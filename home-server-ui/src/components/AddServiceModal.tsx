@@ -21,7 +21,7 @@ import {
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
-const API_BASE = "http://192.168.1.10:5000";
+const API_BASE = "";
 
 interface AddServiceData {
   name: string;

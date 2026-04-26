@@ -13,7 +13,4 @@ ui-dev:
 
 # Clean build artifacts
 clean:
-	rm -rf dist build
-
-install:
-	bun install
+	rm -rf dist home-server-ui/build

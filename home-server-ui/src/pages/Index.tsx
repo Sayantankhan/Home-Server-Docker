@@ -5,9 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Play, Square, ExternalLink, Server, RefreshCw, Search } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Play, Square, ExternalLink, Server, RefreshCw, Search, Cog, Settings2 } from "lucide-react";
 import { AddServiceModal } from "@/components/AddServiceModal";
 import { ContainerDetailsModal } from "@/components/ContainerDetailsModal";
+import ServicesTab from "@/components/ServicesTab";
+import ConfigTab from "@/components/ConfigTab";
 import { toast } from "sonner";
 
 interface Service {
@@ -17,7 +20,7 @@ interface Service {
   urls: string[];
 }
 
-const API_BASE = "http://192.168.1.10:5000";
+const API_BASE = "";
 
 const fetchServices = async (): Promise<Service[]> => {
   const response = await fetch(`${API_BASE}/api/services`);
@@ -48,7 +51,7 @@ const Index = () => {
   const { data: services, isLoading, error, refetch } = useQuery({
     queryKey: ["services"],
     queryFn: fetchServices,
-    refetchInterval: 20000,
+    refetchInterval: 5000,
   });
 
   const filteredServices = services?.filter((service) =>
@@ -121,160 +124,188 @@ const Index = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Home Server</h1>
-              <p className="text-muted-foreground">Docker Container Manager</p>
+              <p className="text-muted-foreground">Manage Containers & Services</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <AddServiceModal />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-              className="gap-2"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </Button>
-          </div>
         </div>
 
-        {/* Search */}
-        <div className="relative mb-6">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search containers..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 max-w-md"
-          />
-        </div>
+        {/* Tabs */}
+        <Tabs defaultValue="docker" className="space-y-6">
+          <TabsList className="grid w-full max-w-lg grid-cols-3">
+            <TabsTrigger value="docker" className="gap-2">
+              <Server className="h-4 w-4" />
+              Docker
+            </TabsTrigger>
+            <TabsTrigger value="services" className="gap-2">
+              <Cog className="h-4 w-4" />
+              Services
+            </TabsTrigger>
+            <TabsTrigger value="config" className="gap-2">
+              <Settings2 className="h-4 w-4" />
+              Config
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Error State */}
-        {error && (
-          <Card className="border-destructive/50 bg-destructive/10 mb-6">
-            <CardContent className="p-4">
-              <p className="text-destructive">
-                Failed to connect to server. Make sure your Flask backend is running on {API_BASE}
-              </p>
-            </CardContent>
-          </Card>
-        )}
+          {/* Docker Tab */}
+          <TabsContent value="docker" className="space-y-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search containers..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2">
+                <AddServiceModal />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetch()}
+                  className="gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </Button>
+              </div>
+            </div>
 
-        {/* Services Grid */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {isLoading ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i} className="overflow-hidden">
-                <CardHeader className="pb-3">
-                  <Skeleton className="h-6 w-32" />
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Skeleton className="h-5 w-20" />
-                  <Skeleton className="h-9 w-full" />
+            {error && (
+              <Card className="border-destructive/50 bg-destructive/10">
+                <CardContent className="p-4">
+                  <p className="text-destructive">
+                    Failed to connect to server. Make sure your Flask backend is running on {API_BASE}
+                  </p>
                 </CardContent>
               </Card>
-            ))
-          ) : filteredServices?.length === 0 ? (
-            <Card className="col-span-full">
-              <CardContent className="p-8 text-center text-muted-foreground">
-                {searchQuery ? "No containers match your search" : "No containers found"}
-              </CardContent>
-            </Card>
-          ) : (
-            filteredServices?.map((service) => (
-              <Card
-                key={service.name}
-                className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => setSelectedContainer(service.name)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-lg font-semibold truncate">
-                      {service.name}
-                    </CardTitle>
-                    <Badge
-                      variant="outline"
-                      className={`shrink-0 ${getStatusColor(service.status)}`}
-                    >
-                      {service.status}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{service.type}</p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {/* URLs */}
-                  {service.urls.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {service.urls.map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {isLoading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={i} className="overflow-hidden">
+                    <CardHeader className="pb-3">
+                      <Skeleton className="h-6 w-32" />
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <Skeleton className="h-5 w-20" />
+                      <Skeleton className="h-9 w-full" />
+                    </CardContent>
+                  </Card>
+                ))
+              ) : filteredServices?.length === 0 ? (
+                <Card className="col-span-full">
+                  <CardContent className="p-8 text-center text-muted-foreground">
+                    {searchQuery ? "No containers match your search" : "No containers found"}
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredServices?.map((service) => (
+                  <Card
+                    key={service.name}
+                    className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+                    onClick={() => setSelectedContainer(service.name)}
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <CardTitle className="text-lg font-semibold truncate">
+                          {service.name}
+                        </CardTitle>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 ${getStatusColor(service.status)}`}
                         >
-                          <ExternalLink className="h-3 w-3" />
-                          {url.replace("http://", "")}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                          {service.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{service.type}</p>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {service.urls.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {service.urls.map((url) => (
+                            <a
+                              key={url}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              {url.replace("http://", "")}
+                            </a>
+                          ))}
+                        </div>
+                      )}
 
-                  {/* Actions */}
-                  {service.status === "running" ? (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="w-full gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        stopMutation.mutate(service.name);
-                      }}
-                      disabled={pendingActions.has(service.name)}
-                    >
-                      <Square className="h-4 w-4" />
-                      {pendingActions.has(service.name) ? "Stopping..." : "Stop Container"}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="w-full gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startMutation.mutate(service.name);
-                      }}
-                      disabled={pendingActions.has(service.name)}
-                    >
-                      <Play className="h-4 w-4" />
-                      {pendingActions.has(service.name) ? "Starting..." : "Start Container"}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
+                      {service.status === "running" ? (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="w-full gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            stopMutation.mutate(service.name);
+                          }}
+                          disabled={pendingActions.has(service.name)}
+                        >
+                          <Square className="h-4 w-4" />
+                          {pendingActions.has(service.name) ? "Stopping..." : "Stop Container"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="w-full gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startMutation.mutate(service.name);
+                          }}
+                          disabled={pendingActions.has(service.name)}
+                        >
+                          <Play className="h-4 w-4" />
+                          {pendingActions.has(service.name) ? "Starting..." : "Start Container"}
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
 
-        {/* Stats Footer */}
-        {services && services.length > 0 && (
-          <div className="mt-8 flex gap-6 text-sm text-muted-foreground">
-            <span>
-              Total: <strong className="text-foreground">{services.length}</strong>
-            </span>
-            <span>
-              Running:{" "}
-              <strong className="text-emerald-400">
-                {services.filter((s) => s.status === "running").length}
-              </strong>
-            </span>
-            <span>
-              Stopped:{" "}
-              <strong className="text-red-400">
-                {services.filter((s) => s.status !== "running").length}
-              </strong>
-            </span>
-          </div>
-        )}
+            {services && services.length > 0 && (
+              <div className="flex gap-6 text-sm text-muted-foreground">
+                <span>
+                  Total: <strong className="text-foreground">{services.length}</strong>
+                </span>
+                <span>
+                  Running:{" "}
+                  <strong className="text-emerald-400">
+                    {services.filter((s) => s.status === "running").length}
+                  </strong>
+                </span>
+                <span>
+                  Stopped:{" "}
+                  <strong className="text-red-400">
+                    {services.filter((s) => s.status !== "running").length}
+                  </strong>
+                </span>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Services Tab */}
+          <TabsContent value="services">
+            <ServicesTab />
+          </TabsContent>
+
+          {/* Config Tab */}
+          <TabsContent value="config">
+            <ConfigTab />
+          </TabsContent>
+        </Tabs>
 
         <ContainerDetailsModal
           containerName={selectedContainer}

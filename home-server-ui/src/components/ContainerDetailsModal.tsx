@@ -17,7 +17,7 @@ import {
   Globe,
 } from "lucide-react";
 
-const API_BASE = "http://192.168.1.10:5000";
+const API_BASE = "";
 
 interface ContainerStats {
   name: string;
