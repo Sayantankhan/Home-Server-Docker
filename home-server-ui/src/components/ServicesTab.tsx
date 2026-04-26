@@ -41,7 +41,8 @@ const stopAppService = async (name: string): Promise<void> => {
 };
 
 const fetchServiceStatus = async (name: string): Promise<ServiceStatus> => {
-  const response = await fetch(`/api/appservices/${name}/status`);
+  // const response = await fetch(`/api/appservices/${name}/status`);
+  const response = await fetch(`/api/appservices/heartbeat/services/${name}`);
   if (!response.ok) throw new Error("Failed to fetch status");
   return response.json();
 };
@@ -76,7 +77,7 @@ const ServicesTab = () => {
       return map;
     },
     enabled: !!services && services.length > 0,
-    refetchInterval: 5000,
+    refetchInterval: 20000,
   });
 
   const filteredServices = services?.filter((service) =>

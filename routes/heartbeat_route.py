@@ -17,16 +17,8 @@ def heartbeat(service_name):
     }
     return jsonify({"service": service_name, "status": "alive", "last_heartbeat": HEARTBEAT_CACHE[service_name]["last_heartbeat"]}), 200
 
-
-@heartbeat_routes.route("/heartbeat/<service_name>", methods=["GET"])
-def validate_heartbeat(service_name):
-    if service_name in HEARTBEAT_CACHE :
-        if time.time() - HEARTBEAT_CACHE[service_name]["last_heartbeat"] < 60:
-            return jsonify({"service": service_name, "status": "alive", "last_heartbeat": HEARTBEAT_CACHE[service_name]["last_heartbeat"]}), 200
-        else:
-            return jsonify({"service": service_name, "status": "dead", "last_heartbeat": HEARTBEAT_CACHE[service_name]["last_heartbeat"]}), 200
-    else:
-        return jsonify({"error": "Service not found"}), 404
+def service_is_alive(last_heartbeat, last_hb_threshold=60):
+    return time.time() - last_heartbeat < last_hb_threshold
 
 
 @heartbeat_routes.route("/heartbeat/services", methods=["GET"])
@@ -34,14 +26,11 @@ def list_heartbeat_services():
     services = []
     for service_name, data in HEARTBEAT_CACHE.items():
         last_hb = data.get("last_heartbeat")
-        is_alive = (
-            last_hb is not None and
-            time.time() - last_hb < 60
-        )
+        is_alive = service_is_alive(last_hb)
 
         services.append({
             "service": service_name,
-            "status": "alive" if is_alive else "dead",
+            "status": "running" if is_alive else "stopped",
 
             # ---- full details ----
             "host": data.get("host"),
@@ -52,3 +41,24 @@ def list_heartbeat_services():
         })
 
     return jsonify({"services": services}), 200
+
+
+@heartbeat_routes.route("/heartbeat/services/<service_name>", methods=["GET"])
+def validate_heartbeat(service_name):
+    if service_name in HEARTBEAT_CACHE :
+        last_hb = HEARTBEAT_CACHE[service_name]["last_heartbeat"]
+        is_alive = service_is_alive(last_hb)
+
+        return jsonify({
+            "service": service_name,
+            "status": "running" if is_alive else "stopped",
+
+            # ---- full details ----
+            "host": HEARTBEAT_CACHE[service_name].get("host"),
+            "port": HEARTBEAT_CACHE[service_name].get("port"),
+            "meta": HEARTBEAT_CACHE[service_name].get("meta", {}),
+            "registered_at": HEARTBEAT_CACHE[service_name].get("registered_at"),
+            "last_heartbeat": last_hb
+        }), 200
+    else:
+        return jsonify({"error": "Service not found"}), 404
