@@ -3,6 +3,7 @@ from .config_route import config_routes
 from .static_route import static_routes
 from .docker_route import docker_routes
 from .process_route import process_routes
+from .ngrok_route import ngrok_routes
 
 def register_routes(app):
     app.register_blueprint(static_routes)
@@ -10,4 +11,5 @@ def register_routes(app):
     app.register_blueprint(config_routes, url_prefix="/api")
     app.register_blueprint(docker_routes)
     app.register_blueprint(process_routes)
+    app.register_blueprint(ngrok_routes)
     

@@ -6,11 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Play, Square, ExternalLink, Server, RefreshCw, Search, Cog, Settings2 } from "lucide-react";
+import { Play, Square, ExternalLink, Server, RefreshCw, Search, Cog, Settings2, Globe } from "lucide-react";
 import { AddServiceModal } from "@/components/AddServiceModal";
 import { ContainerDetailsModal } from "@/components/ContainerDetailsModal";
 import ServicesTab from "@/components/ServicesTab";
 import ConfigTab from "@/components/ConfigTab";
+import NgrokTab from "@/components/NgrokTab";
 import { toast } from "sonner";
 
 interface Service {
@@ -131,7 +132,7 @@ const Index = () => {
 
         {/* Tabs */}
         <Tabs defaultValue="docker" className="space-y-6">
-          <TabsList className="grid w-full max-w-lg grid-cols-3">
+          <TabsList className="grid w-full max-w-2xl grid-cols-4">
             <TabsTrigger value="docker" className="gap-2">
               <Server className="h-4 w-4" />
               Docker
@@ -143,6 +144,10 @@ const Index = () => {
             <TabsTrigger value="config" className="gap-2">
               <Settings2 className="h-4 w-4" />
               Config
+            </TabsTrigger>
+            <TabsTrigger value="ngrok" className="gap-2">
+              <Globe className="h-4 w-4" />
+              Ngrok
             </TabsTrigger>
           </TabsList>
 
@@ -304,6 +309,11 @@ const Index = () => {
           {/* Config Tab */}
           <TabsContent value="config">
             <ConfigTab />
+          </TabsContent>
+
+          {/* Ngrok Tab */}
+          <TabsContent value="ngrok">
+            <NgrokTab />
           </TabsContent>
         </Tabs>
 

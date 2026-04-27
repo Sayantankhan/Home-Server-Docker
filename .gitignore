@@ -12,6 +12,9 @@ home-server-ui/dist
 home-server-ui/dist-ssr
 home-server-ui/*.local
 
+routes/__pycache__/
+*.pyc
+
 ip.txt
 server.log
 server.pid
