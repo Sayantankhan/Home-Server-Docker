@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -22,145 +23,207 @@ import {
   Globe,
   Link2,
   Link2Off,
-  Plus,
-  Trash2,
   Copy,
   ExternalLink,
-  AppWindow,
-  Cable,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
-interface NgrokUrl {
-  id: string;
-  url: string;
-  label?: string;
+interface RawTunnel {
+  id?: number;
+  tunnel_id?: number;
+  name?: string;
+  public_url: string;
+  status: string;
   region?: string;
-  status: string;
+  port?: number | null;
+  created_at?: string;
 }
 
-interface AppItem {
-  id: string;
+interface Tunnel {
+  tunnel_id: number;
+  name?: string;
+  public_url: string;
+  status: string;
+  region?: string;
+  created_at?: string;
+}
+
+interface TunnelStatus {
+  tunnel_id: number;
+  attached: boolean;
+  process_id: number | null;
+  app_port?: number;
+}
+
+interface HeartbeatService {
+  service: string;
+  status: string;
+  port?: number | string;
+  host?: string;
+}
+
+interface AppOption {
   name: string;
-  port?: number;
+  port: number;
   status: string;
-  attachedNgrokId?: string;
+  host?: string;
 }
 
-// const initialNgrokPool: NgrokUrl[] = [
-//   { id: "n1", url: "https://42ed-2401-4900-1cb9.ngrok-free.app", label: "Pool #1" },
-//   { id: "n2", url: "https://9a12-103-21-58-77.ngrok-free.app", label: "Pool #2" },
-//   { id: "n3", url: "https://b7c3-49-37-201-12.ngrok-free.app", label: "Pool #3" },
-// ];
+const fetchTunnels = async (): Promise<Tunnel[]> => {
+  const res = await fetch("/api/ngrok/tunnels");
+  if (!res.ok) throw new Error("Failed to fetch tunnels");
+  const data = await res.json();
+  const list: RawTunnel[] = Array.isArray(data) ? data : data.tunnels || [];
+  return list.map((t) => ({
+    tunnel_id: (t.tunnel_id ?? t.id) as number,
+    name: t.name,
+    public_url: t.public_url,
+    status: t.status,
+    region: t.region,
+    created_at: t.created_at,
+  }));
+};
 
-// const initialApps: AppItem[] = [
-//   { id: "a1", name: "poll-app", port: 8099 },
-//   { id: "a2", name: "notes-api", port: 8100 },
-//   { id: "a3", name: "dashboard", port: 8101 },
-// ];
+const fetchTunnelStatus = async (tunnelId: number): Promise<TunnelStatus> => {
+  const res = await fetch(`/api/ngrok/tunnels/${tunnelId}`);
+  if (!res.ok) throw new Error("Failed to fetch tunnel status");
+  return res.json();
+};
 
-const API_BASE = "";
+const fetchHeartbeatServices = async (): Promise<HeartbeatService[]> => {
+  const res = await fetch("/api/appservices/heartbeat/services");
+  if (!res.ok) throw new Error("Failed to fetch services");
+  const data = await res.json();
+  return Array.isArray(data) ? data : data.services || [];
+};
+
+const attachTunnel = async (tunnelId: number, port: number) => {
+  const res = await fetch(`/api/ngrok/tunnel/${tunnelId}/attach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ port }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to attach tunnel");
+  return data;
+};
+
+const detachTunnel = async (tunnelId: number) => {
+  const res = await fetch(`/api/ngrok/tunnel/${tunnelId}/detach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to detach tunnel");
+  return data;
+};
 
 const NgrokTab = () => {
-  const [pool, setPool] = useState<NgrokUrl[]>([]);
-  const [apps, setApps] = useState<AppItem[]>([]);
-  const [newUrl, setNewUrl] = useState("");
-  const [newLabel, setNewLabel] = useState("");
-  const [attachAppId, setAttachAppId] = useState<string | null>(null);
-  const [selectedNgrokId, setSelectedNgrokId] = useState<string>("");
+  const [statuses, setStatuses] = useState<Record<number, TunnelStatus>>({});
+  const [selectedApp, setSelectedApp] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState<Set<string>>(new Set());
 
+  const {
+    data: tunnels,
+    isLoading: tunnelsLoading,
+    refetch: refetchTunnels,
+  } = useQuery({
+    queryKey: ["ngrok-tunnels"],
+    queryFn: fetchTunnels,
+  });
+
+  const {
+    data: services,
+    isLoading: servicesLoading,
+    refetch: refetchServices,
+  } = useQuery({
+    queryKey: ["heartbeat-services"],
+    queryFn: fetchHeartbeatServices,
+  });
+
+  const setBusyKey = (key: string, on: boolean) => {
+    setBusy((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const refreshStatus = async (tunnelId: number) => {
+    try {
+      const s = await fetchTunnelStatus(tunnelId);
+      setStatuses((prev) => ({ ...prev, [tunnelId]: s }));
+    } catch (e) {
+      // ignore individual status errors
+    }
+  };
+
+  const refreshAllStatuses = async (list: Tunnel[]) => {
+    await Promise.all(list.map((t) => refreshStatus(t.tunnel_id)));
+  };
+
+  // Load statuses whenever the tunnels list changes
   useEffect(() => {
-    fetch(`${API_BASE}/api/ngrok/tunnels`)
-      .then(res => res.json())
-      .then(data => {
-        const mapped: NgrokUrl[] = data.map((t: any) => ({
-          id: String(t.id),
-          url: t.public_url,
-          label: t.name,
-          region: t.region,
-          status: t.status
-        }));
-        setPool(mapped);
-      })
-      .catch(err => console.error("Failed to fetch ngrok tunnels:", err));
-  }, []);
+    if (tunnels && tunnels.length > 0) {
+      refreshAllStatuses(tunnels);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tunnels]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/appservices/heartbeat/services`)
-      .then(res => res.json())
-      .then(data => {
-        const mapped: AppItem[] = data.services.map((s: any) => ({
-          id: `${s.service}-${s.port}`,
-          name: s.service,
-          port: Number(s.port),
-          status: s.status,
-        }));
-        setApps(mapped);
-      })
-      .catch(err => console.error("Failed to fetch services:", err));
-  }, []);
+  const refreshAll = async () => {
+    const [t] = await Promise.all([refetchTunnels(), refetchServices()]);
+    if (t.data) await refreshAllStatuses(t.data);
+  };
 
-  const attachedNgrokIds = new Set(
-    apps.map((a) => a.attachedNgrokId).filter(Boolean) as string[]
-  );
+  const apps: AppOption[] = (services || [])
+    .map((s) => ({
+      name: s.service,
+      port: typeof s.port === "string" ? Number(s.port) : (s.port as number),
+      status: s.status,
+      host: s.host,
+    }))
+    .filter((a) => typeof a.port === "number" && !Number.isNaN(a.port));
 
-  const getAppByNgrok = (ngrokId: string) =>
-    apps.find((a) => a.attachedNgrokId === ngrokId);
-
-  const addNgrok = () => {
-    if (!newUrl.trim()) {
-      toast.error("Enter a valid URL");
+  const handleAttach = async (tunnelId: number) => {
+    const portStr = selectedApp[tunnelId];
+    if (!portStr) {
+      toast.error("Select an app first");
       return;
     }
-    const id = `n${Date.now()}`;
-    setPool((prev) => [
-      ...prev,
-      { id, url: newUrl.trim(), label: newLabel.trim() || `Pool #${prev.length + 1}`, region: "", status: "active" },
-    ]);
-    setNewUrl("");
-    setNewLabel("");
-    toast.success("Ngrok URL added to pool");
-  };
-
-  const removeNgrok = (id: string) => {
-    setApps((prev) =>
-      prev.map((a) => (a.attachedNgrokId === id ? { ...a, attachedNgrokId: undefined } : a))
-    );
-    setPool((prev) => prev.filter((n) => n.id !== id));
-    toast.success("Removed from pool");
-  };
-
-  const detachFromApp = (appId: string) => {
-    setApps((prev) =>
-      prev.map((a) => (a.id === appId ? { ...a, attachedNgrokId: undefined } : a))
-    );
-    toast.success("Detached ngrok URL");
-  };
-
-  const openAttach = (appId: string) => {
-    setAttachAppId(appId);
-    setSelectedNgrokId("");
-  };
-
-  const confirmAttach = () => {
-    if (!attachAppId || !selectedNgrokId) {
-      toast.error("Select a ngrok URL");
-      return;
+    const port = Number(portStr);
+    const key = `attach-${tunnelId}`;
+    setBusyKey(key, true);
+    try {
+      await attachTunnel(tunnelId, port);
+      toast.success("Tunnel attached");
+      await refreshStatus(tunnelId);
+      setSelectedApp((prev) => {
+        const next = { ...prev };
+        delete next[tunnelId];
+        return next;
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to attach");
+    } finally {
+      setBusyKey(key, false);
     }
-    setApps((prev) =>
-      prev.map((a) => {
-        if (a.attachedNgrokId === selectedNgrokId && a.id !== attachAppId) {
-          return { ...a, attachedNgrokId: undefined };
-        }
-        if (a.id === attachAppId) {
-          return { ...a, attachedNgrokId: selectedNgrokId };
-        }
-        return a;
-      })
-    );
-    toast.success("Ngrok URL attached");
-    setAttachAppId(null);
-    setSelectedNgrokId("");
+  };
+
+  const handleDetach = async (tunnelId: number) => {
+    const key = `detach-${tunnelId}`;
+    setBusyKey(key, true);
+    try {
+      await detachTunnel(tunnelId);
+      toast.success("Tunnel detached");
+      await refreshStatus(tunnelId);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to detach");
+    } finally {
+      setBusyKey(key, false);
+    }
   };
 
   const copy = async (text: string) => {
@@ -183,255 +246,241 @@ const NgrokTab = () => {
     }
   };
 
-  const attachingApp = apps.find((a) => a.id === attachAppId);
-  const availableForSelect = pool.filter(
-    (n) => !attachedNgrokIds.has(n.id) || getAppByNgrok(n.id)?.id === attachAppId
-  );
+  const buildPublicHref = (url: string) =>
+    url.startsWith("http") ? url : `https://${url}`;
+
+  const getAppNameByPort = (port?: number) => {
+    if (port === undefined) return undefined;
+    return apps.find((a) => a.port === port)?.name;
+  };
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refreshAll}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Globe className="h-5 w-5 text-primary" />
-            Ngrok Pool
+            Ngrok Tunnels
+            <Badge variant="outline" className="ml-2 text-[10px]">
+              {tunnels?.length ?? 0}
+            </Badge>
+            {servicesLoading ? null : (
+              <Badge variant="outline" className="text-[10px]">
+                {apps.length} apps
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col md:flex-row gap-2">
-            <Input
-              placeholder="https://xxxx.ngrok-free.app"
-              value={newUrl}
-              onChange={(e) => setNewUrl(e.target.value)}
-              className="flex-1"
-            />
-            <Input
-              placeholder="Label (optional)"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              className="md:w-48"
-            />
-            <Button onClick={addNgrok} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add to Pool
-            </Button>
-          </div>
-
-          {pool.length === 0 ? (
+        <CardContent>
+          {tunnelsLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : !tunnels || tunnels.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No ngrok URLs in pool. Add one above.
+              No tunnels available.
             </p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {pool.map((n) => {
-                const attachedApp = getAppByNgrok(n.id);
-                return (
-                  <div
-                    key={n.id}
-                    className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-accent/30 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="p-2 rounded-md bg-primary/10 shrink-0">
-                        <Cable className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">{n.label}</span>
-                          {attachedApp ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Region</TableHead>
+                    <TableHead>Public URL</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Attached App</TableHead>
+                    <TableHead className="text-right w-[320px]">
+                      Action
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tunnels.map((t) => {
+                    const status = statuses[t.tunnel_id];
+                    const isAttached = !!status?.attached;
+                    const attachedApp = getAppNameByPort(status?.app_port);
+                    const attachKey = `attach-${t.tunnel_id}`;
+                    const detachKey = `detach-${t.tunnel_id}`;
+                    return (
+                      <TableRow key={t.tunnel_id}>
+                        <TableCell className="font-mono text-xs">
+                          #{t.tunnel_id}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {t.name || `Tunnel ${t.tunnel_id}`}
+                        </TableCell>
+                        <TableCell>
+                          {t.region ? (
                             <Badge
                               variant="outline"
-                              className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]"
+                              className="text-[10px]"
                             >
-                              attached
+                              {t.region}
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px]">
-                              free
-                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
                           )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">{n.url}</p>
-                        {attachedApp && (
-                          <p className="text-xs text-primary mt-0.5">
-                            -&gt; {attachedApp.name}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => copy(n.url)}
-                        title="Copy URL"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" asChild title="Open">
-                        <a href={n.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeNgrok(n.id)}
-                        title="Remove from pool"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 max-w-[260px]">
+                            <span className="text-xs truncate">
+                              {t.public_url}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              onClick={() => copy(t.public_url)}
+                              title="Copy URL"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              asChild
+                              title="Open"
+                            >
+                              <a
+                                href={buildPublicHref(t.public_url)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              isAttached
+                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]"
+                                : "text-[10px]"
+                            }
+                          >
+                            {isAttached ? "attached" : "free"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {isAttached ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm">
+                                {attachedApp || "—"}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                port {status?.app_port}
+                                {status?.process_id
+                                  ? ` · pid ${status.process_id}`
+                                  : ""}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {isAttached ? (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="gap-2"
+                              disabled={busy.has(detachKey)}
+                              onClick={() => handleDetach(t.tunnel_id)}
+                            >
+                              <Link2Off className="h-4 w-4" />
+                              Detach
+                            </Button>
+                          ) : (
+                            <div className="flex items-center justify-end gap-2">
+                              <Select
+                                value={selectedApp[t.tunnel_id] || ""}
+                                onValueChange={(v) =>
+                                  setSelectedApp((prev) => ({
+                                    ...prev,
+                                    [t.tunnel_id]: v,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="h-9 w-[180px]">
+                                  <SelectValue
+                                    placeholder={
+                                      apps.length === 0
+                                        ? "No apps"
+                                        : "Select app"
+                                    }
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {apps.length === 0 ? (
+                                    <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                                      No running apps
+                                    </div>
+                                  ) : (
+                                    apps.map((a) => (
+                                      <SelectItem
+                                        key={`${a.name}-${a.port}`}
+                                        value={String(a.port)}
+                                      >
+                                        <div className="flex flex-col">
+                                          <span className="text-sm">
+                                            {a.name}
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground">
+                                            {a.host || "127.0.0.1"}:{a.port}
+                                          </span>
+                                        </div>
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                size="sm"
+                                className="gap-2"
+                                disabled={
+                                  busy.has(attachKey) ||
+                                  !selectedApp[t.tunnel_id]
+                                }
+                                onClick={() => handleAttach(t.tunnel_id)}
+                              >
+                                <Link2 className="h-4 w-4" />
+                                Attach
+                              </Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <AppWindow className="h-5 w-5 text-primary" />
-            Applications
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {apps.map((app) => {
-              const ngrok = pool.find((n) => n.id === app.attachedNgrokId);
-              return (
-                <Card key={app.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base font-semibold truncate">
-                        {app.name}
-                      </CardTitle>
-                      <div className="flex items-center gap-1">
-                        {app.port && (
-                          <Badge variant="outline" className="shrink-0 text-[10px]">
-                            :{app.port}
-                          </Badge>
-                        )}
-                        {app.status && (
-                          <Badge
-                            variant="outline"
-                            className={`shrink-0 text-[10px] ${
-                              app.status === "running"
-                                ? "border-green-500 text-green-500"
-                                : "border-red-500 text-red-500"
-                            }`}
-                          >
-                            {app.status}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {ngrok ? (
-                      <div className="space-y-2">
-                        <div className="p-2 rounded-md bg-emerald-500/10 border border-emerald-500/20">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                            Tunnel
-                          </p>
-                          <a
-                            href={ngrok.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-emerald-400 hover:underline break-all flex items-start gap-1 mt-1"
-                          >
-                            <ExternalLink className="h-3 w-3 mt-0.5 shrink-0" />
-                            <span className="break-all">{ngrok.url}</span>
-                          </a>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 gap-2"
-                            onClick={() => openAttach(app.id)}
-                          >
-                            <Link2 className="h-4 w-4" />
-                            Reassign
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="flex-1 gap-2"
-                            onClick={() => detachFromApp(app.id)}
-                          >
-                            <Link2Off className="h-4 w-4" />
-                            Detach
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="w-full gap-2"
-                        onClick={() => openAttach(app.id)}
-                      >
-                        <Link2 className="h-4 w-4" />
-                        Attach Ngrok URL
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Dialog
-        open={attachAppId !== null}
-        onOpenChange={(open) => !open && setAttachAppId(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Attach Ngrok URL to {attachingApp?.name}</DialogTitle>
-            <DialogDescription>
-              Pick a URL from your pool. Reassigning will detach it from any other app.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Select value={selectedNgrokId} onValueChange={setSelectedNgrokId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a ngrok URL" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableForSelect.length === 0 ? (
-                  <div className="px-2 py-3 text-sm text-muted-foreground text-center">
-                    No URLs available
-                  </div>
-                ) : (
-                  availableForSelect.map((n) => {
-                    const owner = getAppByNgrok(n.id);
-                    return (
-                      <SelectItem key={n.id} value={n.id}>
-                        <div className="flex flex-col">
-                          <span className="text-sm">{n.label}</span>
-                          <span className="text-xs text-muted-foreground truncate max-w-[300px]">
-                            {n.url}
-                            {owner && owner.id !== attachAppId ? ` - used by ${owner.name}` : ""}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    );
-                  })
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAttachAppId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmAttach}>Attach</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
