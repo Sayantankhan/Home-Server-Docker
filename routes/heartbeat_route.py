@@ -20,7 +20,6 @@ def heartbeat(service_name):
 def service_is_alive(last_heartbeat, last_hb_threshold=60):
     return time.time() - last_heartbeat < last_hb_threshold
 
-
 @heartbeat_routes.route("/heartbeat/services", methods=["GET"])
 def list_heartbeat_services():
     services = []

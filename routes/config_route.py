@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from .db import get_db
 
 config_routes = Blueprint('config_routes', __name__)
 load_dotenv()
@@ -22,16 +23,10 @@ def get_db_connection():
 @config_routes.route("/config", methods=["GET"])
 def get_configs():
     try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        cur.execute("SELECT key, value FROM app_config")
-        rows = cur.fetchall()
-
-        cur.close()
-        conn.close()
-
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT key, value FROM app_config")
+                rows = cur.fetchall()
         return jsonify(rows), 200
-
-    except Exception as e:
+    except Exception as e: 
         return jsonify({"error": str(e)}), 500
