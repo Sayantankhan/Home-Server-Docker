@@ -1,4 +1,4 @@
-from .heartbeat_route import heartbeat_routes
+from .heartbeat_route import heartbeat_routes, heartbeat_ws_router
 from .config_route import config_routes
 from .static_route import static_routes
 from .docker_route import docker_routes
@@ -12,4 +12,8 @@ def register_routes(app):
     app.register_blueprint(docker_routes)
     app.register_blueprint(process_routes)
     app.register_blueprint(ngrok_routes)
+
+def register_ws_routes(fastapi_app):
+    # WS routes registered separately in FastAPI since Flask doesn't handle WS
+    fastapi_app.include_router(heartbeat_ws_router)
     

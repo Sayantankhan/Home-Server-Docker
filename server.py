@@ -1,12 +1,11 @@
 from flask import Flask, jsonify, send_from_directory, request, Response
 from flask_cors import cross_origin, CORS
-from routes import register_routes
+from routes import register_routes, register_ws_routes
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.wsgi import WSGIMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
-from routes.ws import register_ws_routes
 
 import uvicorn  
 

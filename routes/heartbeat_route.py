@@ -1,12 +1,13 @@
 import os
 import json
+from tracemalloc import start
 from flask import Blueprint, request, jsonify
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import asyncio
 import time
 from .cache import get_master, get_slave
 
-heartbeat_routes = Blueprint('heartbeat_routes', __name__)
-
-HB_THRESHOLD = int(os.getenv("HB_THRESHOLD_SECONDS", 60))
+HB_THRESHOLD = int(20)
 HB_TTL       = int(os.getenv("HB_TTL_SECONDS", 120))
  
 def hb_key(service_name: str) -> str:
@@ -15,7 +16,40 @@ def hb_key(service_name: str) -> str:
 def service_is_alive(last_heartbeat: float) -> bool:
     return time.time() - last_heartbeat < HB_THRESHOLD
 
-# ── routes ────────────────────────────────────────────────────────────────────
+def get_heartbeat_services():
+    r = get_slave()
+    keys = r.keys("heartbeat:*")
+
+    now = time.time()
+
+    services = []
+    for key in keys:
+        data = r.hgetall(key)
+        if not data:
+            continue
+
+        service_name  = key.split(":", 1)[1]
+        last_hb       = float(data.get("last_heartbeat", 0))
+        registered_at = float(data.get("registered_at", 0))
+
+        time_passed = now - last_hb
+
+        services.append({
+            "service":        service_name,
+            "status":         "running" if time_passed < HB_THRESHOLD else "stopped",
+            "host":           data.get("host"),
+            "port":           data.get("port"),
+            "meta":           json.loads(data.get("meta", "{}")),
+            "registered_at":  registered_at,
+            "last_heartbeat": last_hb,
+            "time_passed_from_last_hb": time_passed
+        })
+
+    return services
+
+# ── Flask routes ────────────────────────────────────────────────────────────────────
+heartbeat_routes = Blueprint('heartbeat_routes', __name__)
+
 @heartbeat_routes.route("/heartbeat/<service_name>", methods=["POST"])
 def heartbeat(service_name):
     try:
@@ -33,7 +67,7 @@ def heartbeat(service_name):
         r = get_master()
         key = hb_key(service_name)
         r.hset(key, mapping=payload)
-        r.expire(key, HB_TTL)
+        #r.expire(key, HB_TTL)
 
         return jsonify({
             "service":        service_name,
@@ -73,7 +107,6 @@ def list_heartbeat_services():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @heartbeat_routes.route("/heartbeat/services/<service_name>", methods=["GET"])
 def validate_heartbeat(service_name):
     try:
@@ -98,3 +131,22 @@ def validate_heartbeat(service_name):
  
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ── FastAPI ws routes ────────────────────────────────────────────────────────────
+heartbeat_ws_router = APIRouter()
+
+@heartbeat_ws_router.websocket("/ws/heartbeat/services")
+async def heartbeat_services_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            start = time.time()
+            services = await asyncio.to_thread(get_heartbeat_services)
+            await websocket.send_json({"services": services})
+            elapsed = time.time() - start
+            print("Loop took:", elapsed)
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        await websocket.close(code=1011, reason=str(e))
