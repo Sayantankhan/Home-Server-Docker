@@ -16,7 +16,7 @@ _sentinel = Sentinel(
 )
 
 def get_master():
-    return _sentinel.master_for(MASTER_NAME, socket_timeout=2, password=REDIS_PASSWORD)
+    return _sentinel.master_for(MASTER_NAME, socket_timeout=2, password=REDIS_PASSWORD, decode_responses=True)
  
 def get_slave():
-    return _sentinel.slave_for(MASTER_NAME, socket_timeout=2, password=REDIS_PASSWORD)
+    return _sentinel.slave_for(MASTER_NAME, socket_timeout=2, password=REDIS_PASSWORD, decode_responses=True)
